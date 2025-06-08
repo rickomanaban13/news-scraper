@@ -32,6 +32,7 @@ import FilterListIcon from '@mui/icons-material/FilterList';
 import NewspaperIcon from '@mui/icons-material/Newspaper';
 import SortIcon from '@mui/icons-material/Sort';
 import CloseIcon from '@mui/icons-material/Close';
+import { parse, isValid, parseISO, format } from 'date-fns';
 
 interface Article {
   headline: string;
@@ -111,20 +112,78 @@ function App() {
   };
 
   const sortArticles = (articles: Article[]) => {
-    return [...articles].sort((a, b) => {
-      if (sortBy === 'relevance') {
-        const relevanceA = activeFilters.filter(filter => 
-          a.headline.toLowerCase().includes(filter.toLowerCase())
-        ).length;
-        const relevanceB = activeFilters.filter(filter => 
-          b.headline.toLowerCase().includes(filter.toLowerCase())
-        ).length;
-        return relevanceB - relevanceA;
+    const parseDate = (dateStr: string): number => {
+      if (!dateStr) return 0;
+
+      try {
+        // Try parsing common date formats
+        const formats = [
+          'MMMM d, yyyy',    // June 7, 2020
+          'MMMM d yyyy',     // June 7 2020
+          'MMM d, yyyy',     // Jun 7, 2020
+          'yyyy-MM-dd',      // 2020-06-07
+          'MM/dd/yyyy',      // 06/07/2020
+          'HH:mm',           // 13:45 or 3:45
+          "yyyy-MM-dd'T'HH:mm:ss.SSSX", // ISO format
+        ];
+
+        // Try each format until we find a valid date
+        for (const formatStr of formats) {
+          const parsedDate = parse(dateStr, formatStr, new Date());
+          if (isValid(parsedDate)) {
+            return parsedDate.getTime();
+          }
+        }
+
+        // Try parsing as ISO date
+        const isoDate = parseISO(dateStr);
+        if (isValid(isoDate)) {
+          return isoDate.getTime();
+        }
+
+        // Handle time-only format (e.g., "3:45" or "15:45")
+        const timeMatch = dateStr.match(/^(\d{1,2}):(\d{2})$/);
+        if (timeMatch) {
+          const [_, hours, minutes] = timeMatch;
+          const today = new Date();
+          today.setHours(parseInt(hours), parseInt(minutes), 0, 0);
+          return today.getTime();
+        }
+
+        // Handle relative dates (e.g., "2 hours ago")
+        const relativeMatch = dateStr.match(/(\d+)\s+(minute|hour|day|week|month|year)s?\s+ago/i);
+        if (relativeMatch) {
+          const [_, amount, unit] = relativeMatch;
+          const now = new Date();
+          const multipliers: Record<string, number> = {
+            minute: 60 * 1000,
+            hour: 60 * 60 * 1000,
+            day: 24 * 60 * 60 * 1000,
+            week: 7 * 24 * 60 * 60 * 1000,
+            month: 30 * 24 * 60 * 60 * 1000,
+            year: 365 * 24 * 60 * 60 * 1000
+          };
+          return now.getTime() - parseInt(amount) * (multipliers[unit.toLowerCase()] || 0);
+        }
+
+        // Last resort: try native Date parsing
+        const fallbackDate = new Date(dateStr);
+        return isValid(fallbackDate) ? fallbackDate.getTime() : 0;
+
+      } catch {
+        return 0; // Return 0 for unparseable dates
       }
+    };
 
-      const dateA = new Date(a.date).getTime();
-      const dateB = new Date(b.date).getTime();
-
+    return [...articles].sort((a, b) => {
+      const dateA = parseDate(a.date);
+      const dateB = parseDate(b.date);
+      
+      if (dateA === dateB) {
+        // If dates are equal, sort by headline
+        return a.headline.localeCompare(b.headline);
+      }
+      
       return sortBy === 'date-desc' ? dateB - dateA : dateA - dateB;
     });
   };
